@@ -65,6 +65,7 @@ async function analyzeSentiment() {
     showLoading();
     
     // Try direct API call first (should work from GitHub Pages)
+    // Note: Browser will log CORS errors to console, but we handle them gracefully
     let response;
     let useFallback = false;
     
@@ -78,9 +79,14 @@ async function analyzeSentiment() {
             body: JSON.stringify({ inputs: userText }),
             mode: 'cors'
         });
-    } catch (corsError) {
-        // If CORS error, use fallback sentiment analysis immediately
-        console.log('Direct API failed due to CORS, using fallback analysis...');
+    } catch (networkError) {
+        // Network or CORS error - silently use fallback
+        useFallback = true;
+        response = null;
+    }
+    
+    // If fetch failed or returned null, use fallback
+    if (!response) {
         useFallback = true;
     }
     
@@ -122,11 +128,11 @@ async function analyzeSentiment() {
     
     // Use fallback analysis if API failed
     if (useFallback) {
-        console.log('Using fallback sentiment analysis...');
+        // Silently use fallback - no console errors
         const fallbackResult = simpleSentimentAnalysis(userText);
         displayResult(fallbackResult.label, fallbackResult.score);
         
-        // Show a notice that we're using fallback
+        // Show a friendly notice that we're using fallback
         setTimeout(() => {
             const errorDiv = document.getElementById('errorMessage');
             errorDiv.textContent = 'ℹ️ Using simplified analysis (Hugging Face API unavailable). Results are approximate but still useful!';
@@ -136,6 +142,7 @@ async function analyzeSentiment() {
             errorDiv.style.border = '1px solid #90caf9';
             errorDiv.classList.remove('hidden');
         }, 100);
+        return; // Exit early to prevent any further processing
     }
 }
 
