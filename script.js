@@ -2,7 +2,44 @@
 const API_URL = "https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english";
 const API_TOKEN = ""; // Optional: Add your Hugging Face token here for higher rate limits
 
+// Alternative CORS proxy services (fallback options)
+const CORS_PROXIES = [
+    "https://api.allorigins.win/raw?url=",
+    "https://cors-anywhere.herokuapp.com/",
+    "https://api.codetabs.com/v1/proxy?quest="
+];
+
 let chart = null;
+
+// Simple client-side sentiment analysis as fallback
+function simpleSentimentAnalysis(text) {
+    const lowerText = text.toLowerCase();
+    
+    // Positive words
+    const positiveWords = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'like', 'happy', 'joy', 'pleased', 'delighted', 'awesome', 'brilliant', 'perfect', 'best', 'beautiful', 'nice', 'wonderful', 'superb', 'outstanding', 'marvelous', 'fabulous'];
+    
+    // Negative words
+    const negativeWords = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'dislike', 'sad', 'angry', 'frustrated', 'disappointed', 'worst', 'ugly', 'poor', 'pathetic', 'disgusting', 'annoying', 'furious', 'miserable', 'depressed', 'awful', 'dreadful'];
+    
+    let positiveCount = 0;
+    let negativeCount = 0;
+    
+    positiveWords.forEach(word => {
+        if (lowerText.includes(word)) positiveCount++;
+    });
+    
+    negativeWords.forEach(word => {
+        if (lowerText.includes(word)) negativeCount++;
+    });
+    
+    if (positiveCount > negativeCount) {
+        return { label: 'POSITIVE', score: Math.min(0.7 + (positiveCount * 0.1), 0.95) };
+    } else if (negativeCount > positiveCount) {
+        return { label: 'NEGATIVE', score: Math.min(0.7 + (negativeCount * 0.1), 0.95) };
+    } else {
+        return { label: 'NEUTRAL', score: 0.5 };
+    }
+}
 
 // Initialize - allow Enter key to trigger analysis
 document.addEventListener('DOMContentLoaded', function() {
@@ -32,15 +69,32 @@ async function analyzeSentiment() {
     showLoading();
     
     try {
-        // Call Hugging Face Inference API
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
-            },
-            body: JSON.stringify({ inputs: userText })
-        });
+        // Try direct API call first (should work from GitHub Pages)
+        let response;
+        
+        try {
+            response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
+                },
+                body: JSON.stringify({ inputs: userText }),
+                mode: 'cors'
+            });
+        } catch (corsError) {
+            // If CORS error, try with a proxy
+            console.log('Direct API failed, trying with CORS proxy...');
+            const proxyUrl = CORS_PROXIES[0] + encodeURIComponent(API_URL);
+            response = await fetch(proxyUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
+                },
+                body: JSON.stringify({ inputs: userText })
+            });
+        }
         
         if (!response.ok) {
             // If model is loading, wait and retry
@@ -56,6 +110,12 @@ async function analyzeSentiment() {
         
         // Handle array response
         const sentimentData = Array.isArray(result) ? result[0] : result;
+        
+        // Check if result has the expected structure
+        if (!sentimentData || !sentimentData.label) {
+            throw new Error('Unexpected API response format');
+        }
+        
         const label = sentimentData.label;
         const score = sentimentData.score;
         
@@ -64,7 +124,23 @@ async function analyzeSentiment() {
         
     } catch (error) {
         console.error('Error:', error);
-        showError(`Error analyzing sentiment: ${error.message}. Please try again.`);
+        
+        // If API fails, use fallback client-side analysis
+        if (error.message.includes('CORS') || error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
+            console.log('API failed, using fallback sentiment analysis...');
+            const fallbackResult = simpleSentimentAnalysis(userText);
+            displayResult(fallbackResult.label, fallbackResult.score);
+            
+            // Show a notice that we're using fallback
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = 'Note: Using simplified analysis (API unavailable). For more accurate results, the Hugging Face API needs to be accessible.';
+            errorDiv.className = 'error-message';
+            errorDiv.style.background = '#fff3cd';
+            errorDiv.style.color = '#856404';
+            errorDiv.classList.remove('hidden');
+        } else {
+            showError(`Error analyzing sentiment: ${error.message}. Please try again.`);
+        }
     }
 }
 
