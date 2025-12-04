@@ -2,14 +2,10 @@
 const API_URL = "https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english";
 const API_TOKEN = ""; // Optional: Add your Hugging Face token here for higher rate limits
 
-// Alternative CORS proxy services (fallback options)
-const CORS_PROXIES = [
-    "https://api.allorigins.win/raw?url=",
-    "https://cors-anywhere.herokuapp.com/",
-    "https://api.codetabs.com/v1/proxy?quest="
-];
+// Alternative CORS proxy service
+const CORS_PROXY = "https://api.allorigins.win/raw?url=";
 
-let chart = null;
+let chartCanvas = null;
 
 // Simple client-side sentiment analysis as fallback
 function simpleSentimentAnalysis(text) {
@@ -83,17 +79,10 @@ async function analyzeSentiment() {
                 mode: 'cors'
             });
         } catch (corsError) {
-            // If CORS error, try with a proxy
-            console.log('Direct API failed, trying with CORS proxy...');
-            const proxyUrl = CORS_PROXIES[0] + encodeURIComponent(API_URL);
-            response = await fetch(proxyUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
-                },
-                body: JSON.stringify({ inputs: userText })
-            });
+            // If CORS error, use fallback sentiment analysis immediately
+            // CORS proxies often don't work well with POST requests
+            console.log('Direct API failed due to CORS, using fallback analysis...');
+            throw new Error('CORS_BLOCKED');
         }
         
         if (!response.ok) {
@@ -126,18 +115,21 @@ async function analyzeSentiment() {
         console.error('Error:', error);
         
         // If API fails, use fallback client-side analysis
-        if (error.message.includes('CORS') || error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
+        if (error.message === 'CORS_BLOCKED' || error.message.includes('CORS') || error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
             console.log('API failed, using fallback sentiment analysis...');
             const fallbackResult = simpleSentimentAnalysis(userText);
             displayResult(fallbackResult.label, fallbackResult.score);
             
             // Show a notice that we're using fallback
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = 'Note: Using simplified analysis (API unavailable). For more accurate results, the Hugging Face API needs to be accessible.';
-            errorDiv.className = 'error-message';
-            errorDiv.style.background = '#fff3cd';
-            errorDiv.style.color = '#856404';
-            errorDiv.classList.remove('hidden');
+            setTimeout(() => {
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = 'ℹ️ Using simplified analysis (Hugging Face API blocked by browser). Results are approximate.';
+                errorDiv.className = 'error-message';
+                errorDiv.style.background = '#e3f2fd';
+                errorDiv.style.color = '#1976d2';
+                errorDiv.style.border = '1px solid #90caf9';
+                errorDiv.classList.remove('hidden');
+            }, 100);
         } else {
             showError(`Error analyzing sentiment: ${error.message}. Please try again.`);
         }
@@ -186,10 +178,12 @@ function createChart(label, score) {
     const canvas = document.getElementById('chartCanvas');
     const ctx = canvas.getContext('2d');
     
-    // Destroy existing chart if it exists
-    if (chart) {
-        chart.destroy();
-    }
+    // Set canvas size
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 300;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Prepare data
     const sentiments = ["POSITIVE", "NEGATIVE", "NEUTRAL"];
@@ -197,64 +191,80 @@ function createChart(label, score) {
         if (s === label) {
             return score;
         } else if (s === "NEUTRAL") {
-            return 1 - score;
+            return Math.max(0, 1 - score * 1.5);
         } else {
-            return 1 - score;
+            return Math.max(0, 1 - score * 1.5);
         }
     });
     
-    // Normalize to ensure they sum to 1
-    const sum = confidences.reduce((a, b) => a + b, 0);
-    const normalizedConfidences = confidences.map(c => c / sum);
+    // Normalize to ensure they sum to reasonable values
+    const maxConf = Math.max(...confidences);
+    const normalizedConfidences = confidences.map(c => c / maxConf);
     
-    chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: sentiments,
-            datasets: [{
-                label: 'Confidence',
-                data: normalizedConfidences,
-                backgroundColor: [
-                    'rgba(0, 200, 83, 0.7)',
-                    'rgba(211, 47, 47, 0.7)',
-                    'rgba(25, 118, 210, 0.7)'
-                ],
-                borderColor: [
-                    'rgba(0, 200, 83, 1)',
-                    'rgba(211, 47, 47, 1)',
-                    'rgba(25, 118, 210, 1)'
-                ],
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 1,
-                    ticks: {
-                        callback: function(value) {
-                            return (value * 100).toFixed(0) + '%';
-                        }
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return 'Confidence: ' + (context.parsed.y * 100).toFixed(2) + '%';
-                        }
-                    }
-                }
-            }
-        }
+    // Chart dimensions
+    const chartWidth = canvas.width - 80;
+    const chartHeight = canvas.height - 80;
+    const barWidth = chartWidth / sentiments.length - 20;
+    const startX = 60;
+    const startY = 40;
+    const maxBarHeight = chartHeight - 40;
+    
+    // Colors
+    const colors = {
+        'POSITIVE': { bg: 'rgba(0, 200, 83, 0.7)', border: 'rgba(0, 200, 83, 1)' },
+        'NEGATIVE': { bg: 'rgba(211, 47, 47, 0.7)', border: 'rgba(211, 47, 47, 1)' },
+        'NEUTRAL': { bg: 'rgba(25, 118, 210, 0.7)', border: 'rgba(25, 118, 210, 1)' }
+    };
+    
+    // Draw bars
+    sentiments.forEach((sentiment, index) => {
+        const x = startX + index * (chartWidth / sentiments.length);
+        const barHeight = normalizedConfidences[index] * maxBarHeight;
+        const y = startY + maxBarHeight - barHeight;
+        
+        // Draw bar
+        ctx.fillStyle = colors[sentiment].bg;
+        ctx.strokeStyle = colors[sentiment].border;
+        ctx.lineWidth = 2;
+        ctx.fillRect(x, y, barWidth, barHeight);
+        ctx.strokeRect(x, y, barWidth, barHeight);
+        
+        // Draw label
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(sentiment, x + barWidth / 2, startY + maxBarHeight + 20);
+        
+        // Draw percentage
+        ctx.fillStyle = '#666';
+        ctx.font = '11px Arial';
+        const percentage = (confidences[index] * 100).toFixed(1);
+        ctx.fillText(percentage + '%', x + barWidth / 2, y - 5);
     });
+    
+    // Draw Y-axis labels
+    ctx.fillStyle = '#666';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 5; i++) {
+        const value = (i / 5) * 100;
+        const y = startY + maxBarHeight - (i / 5) * maxBarHeight;
+        ctx.fillText(value + '%', startX - 10, y + 4);
+    }
+    
+    // Draw axis lines
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    // Y-axis
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(startX, startY + maxBarHeight);
+    ctx.stroke();
+    // X-axis
+    ctx.beginPath();
+    ctx.moveTo(startX, startY + maxBarHeight);
+    ctx.lineTo(startX + chartWidth, startY + maxBarHeight);
+    ctx.stroke();
 }
 
 function hideAll() {
