@@ -64,27 +64,28 @@ async function analyzeSentiment() {
     hideAll();
     showLoading();
     
+    // Try direct API call first (should work from GitHub Pages)
+    let response;
+    let useFallback = false;
+    
     try {
-        // Try direct API call first (should work from GitHub Pages)
-        let response;
-        
-        try {
-            response = await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
-                },
-                body: JSON.stringify({ inputs: userText }),
-                mode: 'cors'
-            });
-        } catch (corsError) {
-            // If CORS error, use fallback sentiment analysis immediately
-            // CORS proxies often don't work well with POST requests
-            console.log('Direct API failed due to CORS, using fallback analysis...');
-            throw new Error('CORS_BLOCKED');
-        }
-        
+        response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
+            },
+            body: JSON.stringify({ inputs: userText }),
+            mode: 'cors'
+        });
+    } catch (corsError) {
+        // If CORS error, use fallback sentiment analysis immediately
+        console.log('Direct API failed due to CORS, using fallback analysis...');
+        useFallback = true;
+    }
+    
+    // If we got a response, check if it's valid
+    if (!useFallback && response) {
         if (!response.ok) {
             // If model is loading, wait and retry
             if (response.status === 503) {
@@ -92,47 +93,49 @@ async function analyzeSentiment() {
                 showError(`Model is loading. Please wait ${retryAfter} seconds and try again.`);
                 return;
             }
-            throw new Error(`API error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        // Handle array response
-        const sentimentData = Array.isArray(result) ? result[0] : result;
-        
-        // Check if result has the expected structure
-        if (!sentimentData || !sentimentData.label) {
-            throw new Error('Unexpected API response format');
-        }
-        
-        const label = sentimentData.label;
-        const score = sentimentData.score;
-        
-        // Display results
-        displayResult(label, score);
-        
-    } catch (error) {
-        console.error('Error:', error);
-        
-        // If API fails, use fallback client-side analysis
-        if (error.message === 'CORS_BLOCKED' || error.message.includes('CORS') || error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
-            console.log('API failed, using fallback sentiment analysis...');
-            const fallbackResult = simpleSentimentAnalysis(userText);
-            displayResult(fallbackResult.label, fallbackResult.score);
-            
-            // Show a notice that we're using fallback
-            setTimeout(() => {
-                const errorDiv = document.getElementById('errorMessage');
-                errorDiv.textContent = 'ℹ️ Using simplified analysis (Hugging Face API blocked by browser). Results are approximate.';
-                errorDiv.className = 'error-message';
-                errorDiv.style.background = '#e3f2fd';
-                errorDiv.style.color = '#1976d2';
-                errorDiv.style.border = '1px solid #90caf9';
-                errorDiv.classList.remove('hidden');
-            }, 100);
+            // For other errors, use fallback
+            useFallback = true;
         } else {
-            showError(`Error analyzing sentiment: ${error.message}. Please try again.`);
+            try {
+                const result = await response.json();
+                
+                // Handle array response
+                const sentimentData = Array.isArray(result) ? result[0] : result;
+                
+                // Check if result has the expected structure
+                if (sentimentData && sentimentData.label) {
+                    const label = sentimentData.label;
+                    const score = sentimentData.score;
+                    
+                    // Display results
+                    displayResult(label, score);
+                    return;
+                } else {
+                    useFallback = true;
+                }
+            } catch (parseError) {
+                console.log('Failed to parse API response, using fallback...');
+                useFallback = true;
+            }
         }
+    }
+    
+    // Use fallback analysis if API failed
+    if (useFallback) {
+        console.log('Using fallback sentiment analysis...');
+        const fallbackResult = simpleSentimentAnalysis(userText);
+        displayResult(fallbackResult.label, fallbackResult.score);
+        
+        // Show a notice that we're using fallback
+        setTimeout(() => {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = 'ℹ️ Using simplified analysis (Hugging Face API unavailable). Results are approximate but still useful!';
+            errorDiv.className = 'error-message';
+            errorDiv.style.background = '#e3f2fd';
+            errorDiv.style.color = '#1976d2';
+            errorDiv.style.border = '1px solid #90caf9';
+            errorDiv.classList.remove('hidden');
+        }, 100);
     }
 }
 
