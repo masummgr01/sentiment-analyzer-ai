@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 AI Sentiment Analyzer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI Sentiment Analyzer</h1>
+        <p class="subtitle">Type a sentence below and see what the AI thinks!</p>
+        
+        <div class="input-container">
+            <input 
+                type="text" 
+                id="textInput" 
+                placeholder="Enter a sentence..." 
+                autocomplete="off"
+            >
+            <button id="analyzeBtn" onclick="analyzeSentiment()">Analyze</button>
+        </div>
+        
+        <div id="resultContainer" class="result-container hidden">
+            <div id="sentimentResult" class="sentiment-result"></div>
+            <div id="confidenceScore" class="confidence-score"></div>
+            <canvas id="chartCanvas"></canvas>
+        </div>
+        
+        <div id="infoMessage" class="info-message">
+            👆 Type a sentence to analyze sentiment.
+        </div>
+        
+        <div id="loadingSpinner" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Analyzing sentiment...</p>
+        </div>
+        
+        <div id="errorMessage" class="error-message hidden"></div>
+        
+        <hr class="divider">
+        <footer>
+            <p>Built with ❤️ using Hugging Face Transformers</p>
+        </footer>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
